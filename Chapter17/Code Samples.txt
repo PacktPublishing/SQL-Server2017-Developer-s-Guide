@@ -1,0 +1,118 @@
+#Install the Docker Modules
+
+Install-Module -Name DockerMsftProvider
+Install-Package -Name docker -ProviderName DockerMsftProvider
+
+#Check the docker version
+docker version
+
+#List microsoft sql doker images
+docker search microsoft/mssql
+
+#Pull the latest SQL Express image
+docker pull microsoft/mssql-server-windows-express
+
+#List the local docker images
+
+#Create a docker container from the downloaded image
+docker run -d -p 12345:1433 --env ACCEPT_EULA=Y --env sa_password=P4ssw0rd! --name MySQLContainer microsoft/mssql-server-windows-express 
+
+#Show running docker containers
+docker ps
+
+#Inspect a docker container
+docker inspect MySQLContainer
+
+#Create a docker container with external data access
+docker run -d -p 12346:1433 -v C:\Databases:C:\Databases --env ACCEPT_EULA=Y --env sa_password=P4ssw0rd! --name MySQLContainer2 microsoft/mssql-server-windows-express 
+
+#Create a database in the external storage location
+USE [master];
+GO
+ 
+CREATE DATABASE [MyContainerDB]
+    ON PRIMARY
+(NAME = N'MyContainerDB', FILENAME = N'C:\Databases\MyContainerDB.mdf')
+    LOG ON
+(NAME = N'MyContainerDB_log', FILENAME = N'C:\Databases\MyContainerDB_log.ldf')
+GO
+
+USE [MyContainerDB];
+GO
+ 
+CREATE TABLE dbo.MyTestTable
+(Id INT);
+GO
+ 
+INSERT INTO dbo.MyTestTable
+(Id)
+SELECT TOP 10 object_id FROM sys.objects
+GO
+
+SELECT * FROM dbo.MyTestTable;
+
+
+#Stop and destroy the newly created container, leaving the files behind on disk
+docker stop MySQLContainer2
+docker rm MySQLContainer2
+docker ps
+
+#Create a custom dockerfile (save this inside "dockerfile" in the root directory)
+FROM microsoft/mssql-server-windows-express
+
+RUN powershell -Command ('new-item -path c:\ -name Databases -itemtype directory')
+
+COPY MyContainerDB.mdf C:\\Databases
+COPY MyContainerDB_log.ldf C:\\Databases
+
+ENV sa_password=P$ssw0rd!
+ENV ACCEPT_EULA=Y
+
+ENV attach_dbs="[{'dbName':'MyContainerDB','dbFiles':['C:\\Databases\\MyContainerDB.mdf','C:\\Databases\\MyContainerDB_log.ldf']}]"
+
+
+
+#Create a custom container using the dockerfile
+docker run -d -p 12346:1433 --name testcontainer testimage
+
+
+#### SQL Server on Linux
+
+#Register Microsoft PGP Key
+wget -qO- https://packages.microsoft.com/keys/microsoft.asc | sudo apt-key add –
+
+#Register Microsoft Repository
+sudo add-apt-repository "$(wget -qO- https://packages.microsoft.com/config/ubuntu/16.04/mssql-server-2017.list)"
+
+#Install SQL Server
+sudo apt-get update
+sudo apt-get install -y mssql-server
+
+#Configure SQL Server
+sudo /opt/mssql/bin/mssql-conf setup
+
+#Check service status
+systemctl status mssql-server
+
+#Install UnixODBC
+sudo add-apt-repository "$(wget -qO- https://packages.microsoft.com/config/ubuntu/16.04/prod.list)"
+sudo apt-get update
+sudo apt-get install -y mssql-tools unixodbc-dev
+
+#Register bash path for sqlcmd
+echo 'export PATH="$PATH:/opt/mssql-tools/bin"' >> ~/.bash_profile
+echo 'export PATH="$PATH:/opt/mssql-tools/bin"' >> ~/.bashrc
+source ~/.bashrc
+
+#Query SQL Server on Linux Instance
+sqlcmd -S localhost -U SA -P '<YourPassword>'
+SELECT name FROM sys.databases
+GO
+
+#Update SQL Server on Linux
+sudo apt-get update
+sudo apt-get install mssql-server
+
+#Downgrade SQL Server on Linux
+sudo apt-get install mssql-server=<version_number>
+sudo systemctl start mssql-server
